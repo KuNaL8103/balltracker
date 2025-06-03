@@ -1,4 +1,4 @@
-# ⚽ Football Analysis Project
+# ⚽ BallTracker Project
 
 ## 📌 Introduction
 This project aims to **detect and track football players, referees, and the ball** in match videos using **YOLO**, one of the leading object detection models. The system enhances detection accuracy through training and assigns players to teams based on **t-shirt color clustering via KMeans**.
