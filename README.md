@@ -12,8 +12,6 @@ Key features include:
 
 This project showcases a combination of computer vision and machine learning techniques, making it valuable for both beginners and experienced engineers.
 
-![Screenshot](output_videos/screenshot.png)
-
 ---
 
 ## 🧰 Modules Used
