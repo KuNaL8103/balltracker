@@ -4,4 +4,7 @@ opencv-python
 numpy
 matplotlib
 pandas
-scikit-learn 
+scikit-learn
+torch
+torchvision
+motmetrics
