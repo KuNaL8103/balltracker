@@ -1,6 +1,6 @@
 # ⚽ BallTracker Project
 
-## 📌 Introduction
+## Introduction
 
 This project aims to **detect and track football players, referees, and the ball** in match videos using **YOLO**, one of the leading object detection models. The system enhances detection accuracy through training and assigns players to teams based on **t-shirt color clustering via KMeans**.
 
@@ -16,9 +16,9 @@ This project showcases a combination of computer vision and machine learning tec
 
 ---
 
-## 🧰 Modules Used
+## Modules Used
 
-- **YOLO (v8)**: Object detection (players, referees, ball)
+- **YOLO (v5)**: Object detection (players, referees, ball)
 - **ByteTrack**: Multi-object tracking
 - **KMeans**: T-shirt color clustering (team assignment)
 - **Optical Flow**: Camera motion estimation
@@ -27,7 +27,7 @@ This project showcases a combination of computer vision and machine learning tec
 
 ---
 
-## 📦 Trained Models
+## Trained Models
 
 Download the trained YOLO model:
 
@@ -36,7 +36,7 @@ Download the trained YOLO model:
 
 ---
 
-## 🎥 Sample Input Video
+## Sample Input Video
 
 Download the sample match video:
 
@@ -45,7 +45,7 @@ Download the sample match video:
 
 ---
 
-## 📊 Dataset
+## Dataset
 
 Download the football players detection dataset:
 
@@ -54,7 +54,7 @@ Download the football players detection dataset:
 
 ---
 
-## ✅ Requirements
+## Requirements
 
 To run this project, make sure you have the following installed:
 
@@ -79,7 +79,7 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available(), '| Device:', 
 
 ---
 
-## 🚀 Running the Project
+## Running the Project
 
 ### Standard CPU Version
 ```bash
@@ -102,7 +102,7 @@ Output: `output_videos/output_video_gpu.avi`
 
 ---
 
-## 📈 Metric Validation Scripts
+## Metric Validation Scripts
 
 Run evaluation scripts to validate tracking quality:
 
@@ -151,7 +151,7 @@ python eval_map.py --data path/to/data.yaml
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 BallTracker/
@@ -177,7 +177,7 @@ BallTracker/
 
 ---
 
-## 🔧 GPU Configuration Checklist
+## GPU Configuration Checklist
 
 | Setting | Command/Code |
 |---------|--------------|
@@ -186,25 +186,3 @@ BallTracker/
 | Batch size | `batch_size=32` (adjust for VRAM) |
 | cuDNN benchmark | `torch.backends.cudnn.benchmark = True` |
 | TF32 (Ampere+) | `torch.backends.cuda.matmul.allow_tf32 = True` |
-
----
-
-## 📝 Notes
-
-- **Stub files** in `stubs/` cache tracking results for faster re-runs
-- **FP16 inference** requires compatible model (YOLOv8 works natively)
-- **Batch size 32** assumes 6GB+ VRAM; reduce to 16 if OOM
-- **mAP evaluation** requires Roboflow dataset in YOLO format
-- **MOTA evaluation** needs ground truth in MOT format (not included)
-
----
-
-## 🤝 Contributing
-
-Feel free to open issues or submit PRs for improvements!
-
----
-
-## 📄 License
-
-This project is for educational and research purposes.
