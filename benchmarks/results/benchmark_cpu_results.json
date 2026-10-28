@@ -1,0 +1,101 @@
+{
+  "environment": {
+    "timestamp_utc": "2026-10-28T10:56:10.268923+00:00",
+    "python": "3.13.3",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "AMD64 Family 25 Model 68 Stepping 1, AuthenticAMD",
+    "cpu_count": 16,
+    "torch": "2.6.0+cu124",
+    "cuda_available": true,
+    "cuda_version": "12.4",
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "gpu_total_mb": 6140.5,
+    "onnxruntime": "1.20.2",
+    "onnxruntime_providers": [
+      "TensorrtExecutionProvider",
+      "CUDAExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "gpu_power_draw_w": 14.56,
+    "gpu_power_limit_w": null,
+    "gpu_sm_clock_mhz": 2130.0,
+    "gpu_max_sm_clock_mhz": 3105.0,
+    "gpu_temperature_c": 67.0,
+    "ac_power": true,
+    "battery_percent": 52.0
+  },
+  "config": {
+    "model": "C:\\Code\\Python\\balltracker\\models\\best.pt",
+    "video": "C:\\Code\\Python\\balltracker\\input_videos\\08fd33_4.mp4",
+    "source_fps": 25.0,
+    "frames": 20,
+    "runs": 1,
+    "warmup": 2,
+    "batch_size": 1,
+    "imgsz": 640,
+    "onnx_variants": [
+      "fp32"
+    ],
+    "onnx_provider": "cpu",
+    "timing_scope": "model forward only"
+  },
+  "results": [
+    {
+      "backend": "PyTorch",
+      "precision": "FP32",
+      "device": "cuda:0",
+      "provider": null,
+      "batch_size": 1,
+      "latency_ms_mean": 43.67154500000652,
+      "latency_ms_std": 4.177205133960447,
+      "latency_ms_p95": 50.633659999539304,
+      "throughput_fps": 22.89820522722177,
+      "gpu_peak_mb": 403.62841796875,
+      "cpu_rss_delta_mb": 124.03515625,
+      "model_load_s": 0.37969950000024255,
+      "speedup_vs_baseline": 1.0,
+      "ac_power_start": true,
+      "ac_power_end": true,
+      "sm_clock_start_mhz": 2670.0,
+      "sm_clock_end_mhz": 2655.0
+    },
+    {
+      "backend": "PyTorch",
+      "precision": "FP16",
+      "device": "cuda:0",
+      "provider": null,
+      "batch_size": 1,
+      "latency_ms_mean": 50.467779999917184,
+      "latency_ms_std": 5.227912287317958,
+      "latency_ms_p95": 61.463544999242,
+      "throughput_fps": 19.81462231946087,
+      "gpu_peak_mb": 208.7763671875,
+      "cpu_rss_delta_mb": 388.10546875,
+      "model_load_s": 0.3407824999994773,
+      "speedup_vs_baseline": 0.865335170282469,
+      "ac_power_start": true,
+      "ac_power_end": true,
+      "sm_clock_start_mhz": 2130.0,
+      "sm_clock_end_mhz": 2130.0
+    },
+    {
+      "backend": "ONNX Runtime",
+      "precision": "FP32",
+      "device": "CPU",
+      "provider": "CPUExecutionProvider",
+      "batch_size": 1,
+      "latency_ms_mean": 725.8794700000635,
+      "latency_ms_std": 105.55338382868271,
+      "latency_ms_p95": 882.0074999999634,
+      "throughput_fps": 1.3776391829898598,
+      "gpu_peak_mb": null,
+      "cpu_rss_delta_mb": 441.94921875,
+      "model_load_s": 1.1619528999999602,
+      "speedup_vs_baseline": 0.06016363157371388,
+      "ac_power_start": true,
+      "ac_power_end": true,
+      "sm_clock_start_mhz": 210.0,
+      "sm_clock_end_mhz": 210.0
+    }
+  ]
+}

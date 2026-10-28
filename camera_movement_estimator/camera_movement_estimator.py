@@ -19,7 +19,12 @@ class CameraMovementEstimator():
         first_frame_grayscale = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
         mask_features = np.zeros_like(first_frame_grayscale)
         mask_features[:,0:20] = 1
-        mask_features[:,900:1050] = 1
+        # Use the middle band of the frame so custom clips of any resolution
+        # get usable optical-flow features (the original hard-coded 900:1050
+        # slice only worked for 1920-wide broadcast frames).
+        frame_width = first_frame_grayscale.shape[1]
+        centre = frame_width // 2
+        mask_features[:, max(0, centre - 75):min(frame_width, centre + 75)] = 1
 
         self.features = dict(
             maxCorners = 100,

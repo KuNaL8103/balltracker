@@ -13,10 +13,18 @@ from utils import get_center_of_bbox, get_bbox_width, get_foot_position
 class Tracker:
     def __init__(self, model_path):
         self.model = YOLO(model_path)
-        # Move model to GPU and enable FP16 for faster inference
-        if torch.cuda.is_available():
+        # Move model to GPU and enable FP16 for faster inference.
+        # CPU-only deployments (e.g. Docker) fall back to FP32 transparently.
+        self.use_cuda = torch.cuda.is_available()
+        self.device = 0 if self.use_cuda else 'cpu'
+        self.use_half = self.use_cuda
+        if self.use_cuda:
             self.model.to('cuda')
             self.model.half()
+        self.tracker = sv.ByteTrack()
+
+    def reset_tracker(self):
+        """Reset ByteTrack state so the cached YOLO weights can serve a new clip."""
         self.tracker = sv.ByteTrack()
 
     def add_position_to_tracks(sekf,tracks):
@@ -43,15 +51,17 @@ class Tracker:
         return ball_positions
 
     def detect_frames(self, frames):
-        batch_size = 32  # Increased batch size for GPU throughput
+        # GPU throughput benefits from a larger batch; CPU deployments keep
+        # batches small to bound peak RAM.
+        batch_size = 32 if self.use_cuda else 8
         detections = []
         for i in range(0, len(frames), batch_size):
             detections_batch = self.model.predict(
                 frames[i:i+batch_size],
                 conf=0.1,
-                half=True,      # FP16 inference
-                device=0,       # GPU device 0
-                verbose=False   # Reduce logging overhead
+                half=self.use_half,
+                device=self.device,
+                verbose=False
             )
             detections += detections_batch
         return detections
@@ -176,9 +186,15 @@ class Tracker:
         return frame
 
     def draw_team_ball_control(self,frame,frame_num,team_ball_control):
-        # Draw a semi-transparent rectaggle 
+        # Draw a semi-transparent rectangle, scaled to the actual frame size
+        # so custom clips at 720p/1080p keep the overlay on-screen.
+        frame_height, frame_width = frame.shape[:2]
+        x1 = int(frame_width * 0.70)
+        x2 = int(frame_width * 0.99)
+        y1 = int(frame_height * 0.79)
+        y2 = int(frame_height * 0.90)
         overlay = frame.copy()
-        cv2.rectangle(overlay, (1350, 850), (1900,970), (255,255,255), -1 )
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (255,255,255), -1 )
         alpha = 0.4
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
@@ -186,15 +202,30 @@ class Tracker:
         # Get the number of time each team had ball control
         team_1_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==1].shape[0]
         team_2_num_frames = team_ball_control_till_frame[team_ball_control_till_frame==2].shape[0]
-        team_1 = team_1_num_frames/(team_1_num_frames+team_2_num_frames)
-        team_2 = team_2_num_frames/(team_1_num_frames+team_2_num_frames)
+        controlled_frames = team_1_num_frames + team_2_num_frames
+        if controlled_frames > 0:
+            team_1 = team_1_num_frames/controlled_frames
+            team_2 = team_2_num_frames/controlled_frames
+        else:
+            team_1 = 0.0
+            team_2 = 0.0
 
-        cv2.putText(frame, f"Team 1 Ball Control: {team_1*100:.2f}%",(1400,900), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 3)
-        cv2.putText(frame, f"Team 2 Ball Control: {team_2*100:.2f}%",(1400,950), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 3)
+        font_scale = max(0.5, frame_width / 1920.0)
+        thickness = max(1, int(3 * frame_width / 1920.0))
+        text_x = x1 + int(frame_width * 0.04)
+        text_y1 = y1 + int(frame_height * 0.05)
+        text_y2 = y1 + int(frame_height * 0.10)
+        cv2.putText(frame, f"Team 1 Ball Control: {team_1*100:.2f}%",(text_x,text_y1), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), thickness)
+        cv2.putText(frame, f"Team 2 Ball Control: {team_2*100:.2f}%",(text_x,text_y2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), thickness)
 
         return frame
 
-    def draw_annotations(self,video_frames, tracks,team_ball_control):
+    def draw_annotations(self,video_frames, tracks,team_ball_control,frame_offset=0):
+        """Draw player/referee/ball annotations.
+
+        ``frame_offset`` allows callers to draw a chunk of a longer video while
+        still using the global team-ball-control history for the overlay.
+        """
         output_video_frames= []
         for frame_num, frame in enumerate(video_frames):
             frame = frame.copy()
@@ -220,8 +251,8 @@ class Tracker:
                 frame = self.draw_traingle(frame, ball["bbox"],(0,255,0))
 
 
-            # Draw Team Ball Control
-            frame = self.draw_team_ball_control(frame, frame_num, team_ball_control)
+            # Draw Team Ball Control (global history, local chunk index)
+            frame = self.draw_team_ball_control(frame, frame_num + frame_offset, team_ball_control)
 
             output_video_frames.append(frame)
 

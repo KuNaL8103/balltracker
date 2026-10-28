@@ -6,7 +6,7 @@ This script evaluates the ball position interpolation by comparing
 missing ball detections before and after interpolation.
 
 Usage:
-    python eval_ball_interpolation.py --video input_videos/08fd33_4.mp4 --model models/best.pt
+    python evaluation/eval_ball_interpolation.py --video input_videos/08fd33_4.mp4 --model models/best.pt
 
 Expected output: Missing ball frames before/after, recovery rate percentage
 """
@@ -15,7 +15,9 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from utils.video_utils import read_video

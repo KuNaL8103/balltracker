@@ -7,7 +7,7 @@ This script evaluates the quality of team assignment by:
 2. Visualizing team color clusters
 
 Usage:
-    python eval_team_assignment.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 100
+    python evaluation/eval_team_assignment.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 100
 
 Expected output: Silhouette score (>0.5 = good separation), team colors
 """
@@ -21,7 +21,9 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from team_assigner.team_assigner import TeamAssigner

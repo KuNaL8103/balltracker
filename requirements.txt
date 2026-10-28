@@ -8,3 +8,19 @@ scikit-learn
 torch
 torchvision
 motmetrics
+
+# Structured analytics export + benchmark
+psutil
+onnx
+onnxruntime
+
+# FastAPI inference service
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# Interactive dashboard
+streamlit>=1.54
+seaborn
+requests
+imageio-ffmpeg

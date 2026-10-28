@@ -10,27 +10,33 @@ This is a GPU-accelerated version of main.py with:
 - Performance timing
 
 Usage:
-    python main_gpu.py
+    python pipeline/main_gpu.py
 
 Output: output_videos/output_video_gpu.avi
 """
 
+import sys
 import time
 import torch
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # Enable cuDNN benchmark and TF32 for optimal GPU performance
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 
 # Import pipeline modules
-from utils.video_utils import read_video, save_video
+from utils.video_utils import read_video, save_video, get_video_fps
 from trackers.tracker import Tracker
 from team_assigner.team_assigner import TeamAssigner
 from player_ball_assigner.player_ball_assigner import PlayerBallAssigner
 from camera_movement_estimator.camera_movement_estimator import CameraMovementEstimator
 from view_transformer.view_transformer import ViewTransformer
 from speed_and_distance_estimator.speed_and_distance_estimator import SpeedAndDistance_Estimator
+from analytics.analytics_exporter import export_analytics
 
 import numpy as np
 
@@ -73,6 +79,8 @@ def main():
     print(f"\nInput video: {video_path}")
     print(f"Model: {model_path}")
     print(f"Output: {output_path}")
+
+    source_fps = get_video_fps(video_path)
 
     # Load video
     print("\n[1/10] Loading video...")
@@ -136,6 +144,7 @@ def main():
     print("\n[8/10] Estimating speed and distance...")
     start = time.time()
     speed_est = SpeedAndDistance_Estimator()
+    speed_est.frame_rate = source_fps
     speed_est.add_speed_and_distance_to_tracks(tracks)
     speed_time = time.time() - start
     print(f"  Speed/distance completed in {speed_time:.2f}s")
@@ -165,18 +174,43 @@ def main():
     team_ball_control = []
 
     for frame_num, player_track in enumerate(tracks['players']):
-        ball_bbox = tracks['ball'][frame_num][1]['bbox']
-        assigned = player_assigner.assign_ball_to_player(player_track, ball_bbox)
+        ball_track = tracks['ball'][frame_num].get(1)
+        assigned = -1
+        if ball_track is not None:
+            assigned = player_assigner.assign_ball_to_player(player_track, ball_track['bbox'])
 
         if assigned != -1:
             tracks['players'][frame_num][assigned]['has_ball'] = True
             team_ball_control.append(tracks['players'][frame_num][assigned]['team'])
         else:
-            team_ball_control.append(team_ball_control[-1] if team_ball_control else 1)
+            team_ball_control.append(team_ball_control[-1] if team_ball_control else 0)
 
     team_ball_control = np.array(team_ball_control)
     possess_time = time.time() - start
     print(f"  Ball possession completed in {possess_time:.2f}s")
+
+    # Export structured tactical analytics (JSON + CSV)
+    print("\nExporting tactical analytics...")
+    start = time.time()
+    _, analytics_json, analytics_csv = export_analytics(
+        {
+            'tracks': tracks,
+            'team_ball_control': team_ball_control,
+            'team_colors': team_assigner.team_colors,
+            'fps': source_fps,
+            'frames': len(video_frames),
+            'width': video_frames[0].shape[1],
+            'height': video_frames[0].shape[0],
+            'video_path': video_path,
+            'model_path': model_path,
+            'used_stubs': True,
+        },
+        output_dir='outputs/analytics',
+    )
+    analytics_time = time.time() - start
+    print(f"  Analytics exported in {analytics_time:.2f}s")
+    print(f"    JSON: {analytics_json}")
+    print(f"    CSV : {analytics_csv}")
 
     # Draw output
     print("\nDrawing output video...")
@@ -191,12 +225,12 @@ def main():
     print("\nSaving output video...")
     start = time.time()
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    save_video(output_frames, output_path)
+    save_video(output_frames, output_path, fps=source_fps)
     save_time = time.time() - start
     print(f"  Save completed in {save_time:.2f}s")
 
     # Summary
-    total_time = load_time + init_time + track_time + cam_time + view_time + interp_time + speed_time + team_time + possess_time + draw_time + save_time
+    total_time = load_time + init_time + track_time + cam_time + view_time + interp_time + speed_time + team_time + possess_time + analytics_time + draw_time + save_time
 
     print("\n" + "=" * 60)
     print("PIPELINE SUMMARY (GPU)")
@@ -210,6 +244,7 @@ def main():
     print(f"  Speed/distance:        {speed_time:>6.2f}s")
     print(f"  Team assignment:       {team_time:>6.2f}s")
     print(f"  Ball possession:       {possess_time:>6.2f}s")
+    print(f"  Analytics export:      {analytics_time:>6.2f}s")
     print(f"  Drawing:               {draw_time:>6.2f}s")
     print(f"  Video saving:          {save_time:>6.2f}s")
     print(f"  {'─' * 20}")

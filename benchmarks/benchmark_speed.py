@@ -6,7 +6,8 @@ This script benchmarks the end-to-end processing speed of the tracking pipeline
 on GPU with FP16 inference.
 
 Usage:
-    python benchmark_speed.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 100
+    python benchmarks/benchmark_speed.py --video input_videos/08fd33_4.mp4 \
+        --model models/best.pt --frames 100
 
 Expected output: FPS, elapsed time for 100 frames
 """
@@ -18,7 +19,9 @@ from pathlib import Path
 
 import torch
 
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from utils.video_utils import read_video

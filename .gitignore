@@ -21,6 +21,9 @@ output_videos/*.avi
 output_videos/*.mp4
 output_videos/*.mkv
 
+# Generated live-dashboard runs
+outputs/analytics/runs/
+
 # Stubs (cached tracking results)
 stubs/*.pkl
 
@@ -39,3 +42,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Documentation: only the root README is tracked
+*.md
+!/README.md

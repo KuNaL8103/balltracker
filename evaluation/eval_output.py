@@ -6,7 +6,7 @@ This script runs the full pipeline and verifies that the output video
 has the same number of frames as the input (no frame drops).
 
 Usage:
-    python eval_output.py --video input_videos/08fd33_4.mp4 --model models/best.pt
+    python evaluation/eval_output.py --video input_videos/08fd33_4.mp4 --model models/best.pt
 
 Expected output: Input frames, Output frames, Frame drop rate percentage
 """
@@ -19,7 +19,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from camera_movement_estimator.camera_movement_estimator import CameraMovementEstimator

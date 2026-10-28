@@ -1,4 +1,11 @@
-from utils import read_video, save_video
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from utils import read_video, save_video, get_video_fps
 from trackers import Tracker
 import cv2
 import numpy as np
@@ -7,11 +14,15 @@ from player_ball_assigner import PlayerBallAssigner
 from camera_movement_estimator import CameraMovementEstimator
 from view_transformer import ViewTransformer
 from speed_and_distance_estimator import SpeedAndDistance_Estimator
+from analytics.analytics_exporter import export_analytics
 
 
 def main():
+    video_path = 'input_videos/08fd33_4.mp4'
+    source_fps = get_video_fps(video_path)
+
     # Read Video
-    video_frames = read_video('input_videos/08fd33_4.mp4')
+    video_frames = read_video(video_path)
 
     # Initialize Tracker
     tracker = Tracker('models/best.pt')
@@ -39,6 +50,7 @@ def main():
 
     # Speed and distance estimator
     speed_and_distance_estimator = SpeedAndDistance_Estimator()
+    speed_and_distance_estimator.frame_rate = source_fps
     speed_and_distance_estimator.add_speed_and_distance_to_tracks(tracks)
 
     # Assign Player Teams
@@ -59,16 +71,34 @@ def main():
     player_assigner =PlayerBallAssigner()
     team_ball_control= []
     for frame_num, player_track in enumerate(tracks['players']):
-        ball_bbox = tracks['ball'][frame_num][1]['bbox']
-        assigned_player = player_assigner.assign_ball_to_player(player_track, ball_bbox)
+        ball_track = tracks['ball'][frame_num].get(1)
+        assigned_player = -1
+        if ball_track is not None:
+            assigned_player = player_assigner.assign_ball_to_player(player_track, ball_track['bbox'])
 
         if assigned_player != -1:
             tracks['players'][frame_num][assigned_player]['has_ball'] = True
             team_ball_control.append(tracks['players'][frame_num][assigned_player]['team'])
         else:
-            team_ball_control.append(team_ball_control[-1])
+            team_ball_control.append(team_ball_control[-1] if team_ball_control else 0)
     team_ball_control= np.array(team_ball_control)
 
+    # Export structured tactical analytics (JSON + CSV)
+    export_analytics(
+        {
+            'tracks': tracks,
+            'team_ball_control': team_ball_control,
+            'team_colors': team_assigner.team_colors,
+            'fps': source_fps,
+            'frames': len(video_frames),
+            'width': video_frames[0].shape[1],
+            'height': video_frames[0].shape[0],
+            'video_path': video_path,
+            'model_path': 'models/best.pt',
+            'used_stubs': True,
+        },
+        output_dir='outputs/analytics',
+    )
 
     # Draw output 
     ## Draw object Tracks
@@ -81,7 +111,7 @@ def main():
     speed_and_distance_estimator.draw_speed_and_distance(output_video_frames,tracks)
 
     # Save video
-    save_video(output_video_frames, 'output_videos/output_video.avi')
+    save_video(output_video_frames, 'output_videos/output_video.avi', fps=source_fps)
 
 if __name__ == '__main__':
     main()

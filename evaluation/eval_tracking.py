@@ -6,7 +6,7 @@ This script evaluates tracking quality by computing ID switches from tracker out
 Uses the existing stub files or runs tracking on the input video.
 
 Usage:
-    python eval_tracking.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 1200
+    python evaluation/eval_tracking.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 1200
 
 Expected output: Estimated ID switches, total unique tracks
 """
@@ -19,7 +19,9 @@ from pathlib import Path
 import numpy as np
 
 # Add parent directory to path
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from utils.video_utils import read_video

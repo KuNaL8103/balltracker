@@ -7,7 +7,7 @@ This script evaluates:
 2. Residual drift after homography correction (meters/frame)
 
 Usage:
-    python eval_camera_motion.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 500
+    python evaluation/eval_camera_motion.py --video input_videos/08fd33_4.mp4 --model models/best.pt --frames 500
 
 Expected output: Raw camera drift (px/frame), Residual drift after homography (m/frame)
 """
@@ -18,7 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.append(str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from trackers.tracker import Tracker
 from camera_movement_estimator.camera_movement_estimator import CameraMovementEstimator
