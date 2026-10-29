@@ -257,6 +257,12 @@ The dashboard has three tabs:
    `POST /analyze-clip`, raw JSON download, and an in-process exporter fallback
    when the API server is not running.
 
+> Live runs are CPU-safe on Streamlit Community Cloud: frames are downscaled
+> to 960 px wide and capped at 60 frames by default. Override with
+> `BALLTRACKER_LIVE_RESIZE_WIDTH` and `BALLTRACKER_MAX_LIVE_FRAMES` on a
+> GPU/high-RAM host. The pre-computed 750-frame sample never loads frames into
+> RAM.
+
 ## Project Structure
 
 ```

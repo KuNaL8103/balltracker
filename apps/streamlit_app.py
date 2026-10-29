@@ -16,6 +16,7 @@ Tabs
 
 from __future__ import annotations
 
+import gc
 import json
 import re
 import shutil
@@ -82,6 +83,12 @@ TEAM_COLORS_IMAGE = PROJECT_ROOT / "output_videos" / "team_colors.jpg"
 API_DEFAULT = "http://127.0.0.1:8000"
 PITCH_LENGTH_M = 23.32
 PITCH_WIDTH_M = 68.0
+
+# Streamlit Community Cloud is CPU-only with a 1 GB RAM limit. Keep live runs
+# small and downscale frames; the pre-computed 750-frame sample never reads
+# these frames into RAM. Override with env vars on a larger/GPU host.
+LIVE_MAX_FRAMES = max(10, int(os.getenv("BALLTRACKER_MAX_LIVE_FRAMES", "60")))
+LIVE_RESIZE_WIDTH = max(320, int(os.getenv("BALLTRACKER_LIVE_RESIZE_WIDTH", "960")))
 
 st.markdown(
     """
@@ -185,8 +192,7 @@ def on_source_change() -> None:
 
 
 def get_tracker():
-    """Download weights if needed and cache YOLO tracker across Streamlit reruns."""
-    ensure_model_exists()
+    """Cache a lazy tracker; weights are ensured only before real inference."""
     from trackers.tracker import Tracker
 
     return Tracker(str(MODEL_PATH))
@@ -205,8 +211,11 @@ def run_pipeline(
 ) -> Tuple[Dict[str, Any], List[bytes]]:
     from analytics.analytics_exporter import build_match_summary, process_video
 
+    max_frames = min(max_frames, LIVE_MAX_FRAMES)
     effective_stubs = bool(use_stubs and TRACK_STUB.is_file())
     tracker = None if effective_stubs else cached_tracker()
+    if not effective_stubs:
+        ensure_model_exists()
 
     result = process_video(
         video_path=str(video_path),
@@ -216,10 +225,18 @@ def run_pipeline(
         camera_stub_path=str(CAMERA_STUB) if effective_stubs else None,
         use_stubs=effective_stubs,
         tracker=tracker,
+        resize_width=LIVE_RESIZE_WIDTH,
         log=lambda _message: None,
     )
     payload = build_match_summary(result, source_name=source_name or video_path.name)
     annotated = make_annotated_samples(result, count=3)
+    if not effective_stubs:
+        try:
+            cached_tracker.clear()
+        except Exception:
+            pass
+    del result
+    gc.collect()
     return payload, annotated
 
 
@@ -475,7 +492,14 @@ def run_full_pipeline(
     can optionally reuse the cached tracking/camera stubs while still running
     every visual and analytics step.
     """
-    from analytics.analytics_exporter import export_analytics, interpolate_ball_positions, read_video_frames
+    from analytics.analytics_exporter import (
+        export_analytics,
+        get_video_source_size,
+        interpolate_ball_positions,
+        read_video_frames,
+        scale_camera_movement_to_frame_size,
+        scale_tracks_to_frame_size,
+    )
     from camera_movement_estimator.camera_movement_estimator import CameraMovementEstimator
     from player_ball_assigner.player_ball_assigner import PlayerBallAssigner
     from speed_and_distance_estimator.speed_and_distance_estimator import SpeedAndDistance_Estimator
@@ -486,23 +510,41 @@ def run_full_pipeline(
         if progress_callback:
             progress_callback(step, message)
 
-    frames, fps, width, height = read_video_frames(str(video_path), max_frames=max_frames)
+    max_frames = min(max_frames, LIVE_MAX_FRAMES)
+    effective_stubs = bool(use_stubs and not is_custom and TRACK_STUB.is_file())
+    source_size = get_video_source_size(str(video_path)) if effective_stubs else (0, 0)
+
+    run_dir = create_run_dir(source_name)
+    if effective_stubs:
+        # Stub-only runs need drawing helpers but not YOLO weights. Tracker is
+        # lazy, so constructing it here does not load/download the model.
+        from trackers.tracker import Tracker
+
+        tracker = Tracker(str(MODEL_PATH))
+    else:
+        # This is the only path that needs weights. The tracker is lazy; the
+        # model file is checked/downloaded immediately before get_object_tracks.
+        tracker = cached_tracker()
+    tracker.reset_tracker()
+
+    frames, fps, width, height = read_video_frames(
+        str(video_path),
+        max_frames=max_frames,
+        resize_width=LIVE_RESIZE_WIDTH,
+    )
     frame_count = len(frames)
     if frame_count == 0:
         raise ValueError("No frames decoded from the uploaded video.")
 
-    run_dir = create_run_dir(source_name)
-    tracker = cached_tracker()
-    tracker.reset_tracker()
-
     # 1. YOLO + ByteTrack
-    effective_stubs = bool(use_stubs and not is_custom and TRACK_STUB.is_file())
     announce(
         1,
         "Cached YOLO + ByteTrack tracks"
         if effective_stubs
         else "YOLO + ByteTrack detection and tracking",
     )
+    if not effective_stubs:
+        ensure_model_exists()
     tracks = tracker.get_object_tracks(
         frames,
         read_from_stub=effective_stubs,
@@ -512,6 +554,9 @@ def run_full_pipeline(
         sequence = list(tracks[name])[:frame_count]
         sequence.extend({} for _ in range(frame_count - len(sequence)))
         tracks[name] = sequence
+    if effective_stubs:
+        scale_tracks_to_frame_size(tracks, source_size, (width, height))
+    gc.collect()
 
     # 2. Positions
     announce(2, "Object position estimation")
@@ -526,9 +571,14 @@ def run_full_pipeline(
         read_from_stub=camera_stub_available,
         stub_path=str(CAMERA_STUB) if camera_stub_available else None,
     )
+    if camera_stub_available:
+        camera_movement = scale_camera_movement_to_frame_size(
+            camera_movement, source_size, (width, height)
+        )
     camera_movement = list(camera_movement)[:frame_count]
     camera_movement.extend([0, 0] for _ in range(frame_count - len(camera_movement)))
     camera_estimator.add_adjust_positions_to_tracks(tracks, camera_movement)
+    gc.collect()
 
     # 4. Perspective transform
     announce(4, "Perspective transformation (23.32 m x 68 m pitch)")
@@ -590,6 +640,7 @@ def run_full_pipeline(
         team_colors_path,
         seed_index or 0,
     )
+    gc.collect()
 
     # 8. Ball possession + annotations + H.264 encode
     announce(8, "Ball possession, annotations and H.264 encoding")
@@ -623,6 +674,8 @@ def run_full_pipeline(
         annotated_video_path,
         progress_callback=encode_callback,
     )
+    del frames
+    gc.collect()
 
     payload, json_path, csv_path = export_analytics(
         {
@@ -640,6 +693,16 @@ def run_full_pipeline(
         output_dir=str(run_dir),
         source_name=source_name,
     )
+    del tracks
+    if not effective_stubs:
+        # Release the cached YOLO model after a live run so the default
+        # pre-computed page can reopen without holding ~500 MB of weights.
+        try:
+            cached_tracker.clear()
+        except Exception:
+            pass
+    del tracker
+    gc.collect()
 
     return {
         "payload": payload,
@@ -767,6 +830,14 @@ def make_annotated_samples(result: Dict[str, Any], count: int = 3) -> List[bytes
         ok, frame = cap.read()
         if not ok:
             continue
+
+        # Tracks may have been computed on downscaled frames; alignment matters.
+        target_width = int(result.get("width") or frame.shape[1])
+        target_height = int(result.get("height") or frame.shape[0])
+        if frame.shape[1] != target_width or frame.shape[0] != target_height:
+            frame = cv2.resize(
+                frame, (target_width, target_height), interpolation=cv2.INTER_AREA
+            )
 
         for player_id, player in players[index].items() if index < len(players) else []:
             bbox = player.get("bbox")
@@ -1541,17 +1612,24 @@ with st.sidebar:
         max_frames = st.slider("Max frames", 10, 750, 750, step=10)
         st.caption(
             "Stubs make the sample instant. Uncheck to run the full 8-step live "
-            "pipeline on the sample video."
+            f"pipeline on the sample video (CPU-safe cap: {LIVE_MAX_FRAMES} frames)."
         )
     else:
         uploaded_file = st.file_uploader(
             "Upload a short clip",
             type=["mp4", "avi", "mov", "mkv", "webm"],
         )
-        max_frames = st.slider("Max frames", 10, 300, 100, step=10)
+        max_frames = st.slider(
+            "Max frames",
+            10,
+            LIVE_MAX_FRAMES,
+            LIVE_MAX_FRAMES,
+            step=10,
+        )
         st.caption(
-            "Runs the complete 8-step live pipeline and creates a fresh annotated "
-            "MP4, team-colour plot, JSON and CSV for this clip."
+            "Runs the complete 8-step live pipeline at "
+            f"{LIVE_RESIZE_WIDTH}px wide, capped at {LIVE_MAX_FRAMES} frames for "
+            "the 1 GB Streamlit Cloud limit."
         )
 
     run_clicked = st.button("Run Analysis", type="primary", width="stretch")
@@ -1588,6 +1666,14 @@ if run_clicked:
         store_payload(saved_sample)
         st.sidebar.success("Loaded pre-computed 750-frame sample analytics")
     else:
+        live_frames = min(max_frames, LIVE_MAX_FRAMES)
+        if live_frames < max_frames:
+            st.sidebar.warning(
+                f"CPU-safe live cap: using the first {live_frames} of "
+                f"{max_frames} frames. Set BALLTRACKER_MAX_LIVE_FRAMES to raise it "
+                "on a GPU/high-RAM host."
+            )
+
         status = st.status("Running full 8-step pipeline...", expanded=True)
         progress = st.progress(0.0, text="Preparing pipeline...")
 
@@ -1624,7 +1710,7 @@ if run_clicked:
 
             result = run_full_pipeline(
                 pipeline_video,
-                max_frames,
+                live_frames,
                 use_stubs=pipeline_stubs,
                 source_name=source_name,
                 is_custom=is_custom_run,

@@ -1,4 +1,3 @@
-from ultralytics import YOLO
 import supervision as sv
 import pickle
 import os
@@ -6,22 +5,43 @@ import numpy as np
 import pandas as pd
 import cv2
 import sys
-import torch
 sys.path.append('../')
 from utils import get_center_of_bbox, get_bbox_width, get_foot_position
 
 class Tracker:
     def __init__(self, model_path):
-        self.model = YOLO(model_path)
-        # Move model to GPU and enable FP16 for faster inference.
-        # CPU-only deployments (e.g. Docker) fall back to FP32 transparently.
+        # Do not load YOLO here. Stub-based runs only need ByteTrack plus the
+        # drawing helpers, so this keeps Streamlit Cloud / CPU RAM near zero
+        # until inference is actually requested.
+        self.model_path = model_path
+        self.model = None
+        self.use_cuda = None
+        self.device = None
+        self.use_half = False
+        self.tracker = sv.ByteTrack()
+
+    def _ensure_model(self):
+        """Lazily load YOLO on the first real inference call."""
+        if self.model is not None:
+            return self.model
+
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"YOLO model not found: {self.model_path}")
+
+        import torch
+        from ultralytics import YOLO
+
         self.use_cuda = torch.cuda.is_available()
         self.device = 0 if self.use_cuda else 'cpu'
         self.use_half = self.use_cuda
+
+        model = YOLO(self.model_path)
         if self.use_cuda:
-            self.model.to('cuda')
-            self.model.half()
-        self.tracker = sv.ByteTrack()
+            model.to('cuda')
+            # FP16 is only safe/useful on CUDA. Never call .half() on CPU.
+            model.half()
+        self.model = model
+        return self.model
 
     def reset_tracker(self):
         """Reset ByteTrack state so the cached YOLO weights can serve a new clip."""
@@ -51,17 +71,24 @@ class Tracker:
         return ball_positions
 
     def detect_frames(self, frames):
+        model = self._ensure_model()
         # GPU throughput benefits from a larger batch; CPU deployments keep
         # batches small to bound peak RAM.
-        batch_size = 32 if self.use_cuda else 8
+        batch_size = 32 if self.use_cuda else 4
+        predict_kwargs = {
+            "conf": 0.1,
+            "device": self.device,
+            "verbose": False,
+        }
+        if self.use_cuda:
+            # Never pass half=True (or any half argument) on CPU.
+            predict_kwargs["half"] = True
+
         detections = []
         for i in range(0, len(frames), batch_size):
-            detections_batch = self.model.predict(
+            detections_batch = model.predict(
                 frames[i:i+batch_size],
-                conf=0.1,
-                half=self.use_half,
-                device=self.device,
-                verbose=False
+                **predict_kwargs,
             )
             detections += detections_batch
         return detections

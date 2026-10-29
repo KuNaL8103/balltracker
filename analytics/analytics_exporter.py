@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import json
 import math
 import pickle
@@ -74,29 +75,110 @@ def _fit_tracks(tracks: Dict[str, List[Dict[int, Dict[str, Any]]]], length: int)
     return tracks
 
 
-def read_video_frames(video_path: str, max_frames: Optional[int] = None) -> Tuple[List[np.ndarray], float, int, int]:
+def read_video_frames(
+    video_path: str,
+    max_frames: Optional[int] = None,
+    resize_width: Optional[int] = None,
+) -> Tuple[List[np.ndarray], float, int, int]:
+    """Read frames, optionally downscaling to keep CPU/Streamlit RAM bounded.
+
+    A 1080p BGR frame is ~6.2 MB. At 300 frames that is ~1.86 GB before any
+    model/tracker allocations, so live CPU runs pass ``resize_width=960`` and
+    a small frame cap.
+    """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
 
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    source_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    source_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
 
     frames: List[np.ndarray] = []
     while max_frames is None or len(frames) < max_frames:
         ok, frame = cap.read()
         if not ok:
             break
+        if resize_width and frame.shape[1] > resize_width:
+            scale = resize_width / frame.shape[1]
+            frame = cv2.resize(
+                frame,
+                (resize_width, max(2, int(round(frame.shape[0] * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
         frames.append(frame)
     cap.release()
 
     if not frames:
         raise ValueError(f"No frames decoded from: {video_path}")
-    if width <= 0 or height <= 0:
-        height, width = frames[0].shape[:2]
+
+    height, width = frames[0].shape[:2]
+    if width <= 0 or height <= 0:  # defensive fallback
+        width, height = source_width, source_height
 
     return frames, fps, width, height
+
+
+def get_video_source_size(video_path: str) -> Tuple[int, int]:
+    """Return the original (width, height) before any RAM-saving resize."""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return 0, 0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    cap.release()
+    return width, height
+
+
+def scale_tracks_to_frame_size(
+    tracks: Dict[str, List[Dict[int, Dict[str, Any]]]],
+    source_size: Tuple[int, int],
+    target_size: Tuple[int, int],
+) -> None:
+    """Scale cached-stub boxes from original pixels to downscaled frames."""
+    source_width, source_height = source_size
+    target_width, target_height = target_size
+    if (
+        source_width <= 0
+        or source_height <= 0
+        or (source_width, source_height) == (target_width, target_height)
+    ):
+        return
+
+    scale_x = target_width / source_width
+    scale_y = target_height / source_height
+    for object_tracks in tracks.values():
+        for frame_track in object_tracks:
+            for track_info in frame_track.values():
+                bbox = track_info.get("bbox")
+                if bbox is not None and len(bbox) == 4:
+                    track_info["bbox"] = [
+                        float(bbox[0]) * scale_x,
+                        float(bbox[1]) * scale_y,
+                        float(bbox[2]) * scale_x,
+                        float(bbox[3]) * scale_y,
+                    ]
+
+
+def scale_camera_movement_to_frame_size(
+    camera_movement: Sequence[Sequence[float]],
+    source_size: Tuple[int, int],
+    target_size: Tuple[int, int],
+) -> List[List[float]]:
+    source_width, source_height = source_size
+    target_width, target_height = target_size
+    if (
+        source_width <= 0
+        or source_height <= 0
+        or (source_width, source_height) == (target_width, target_height)
+    ):
+        return [list(movement) for movement in camera_movement]
+    scale_x = target_width / source_width
+    scale_y = target_height / source_height
+    return [
+        [float(movement[0]) * scale_x, float(movement[1]) * scale_y]
+        for movement in camera_movement
+    ]
 
 
 def interpolate_ball_positions(ball_positions: Sequence[Dict[int, Dict[str, Any]]]) -> List[Dict[int, Dict[str, Any]]]:
@@ -154,6 +236,7 @@ def process_video(
     camera_stub_path: Optional[str] = None,
     use_stubs: bool = True,
     tracker: Any = None,
+    resize_width: Optional[int] = 960,
     log=print,
 ) -> Dict[str, Any]:
     """Run detection/tracking + homography + team assignment for one clip.
@@ -162,13 +245,19 @@ def process_video(
     uses this to keep the YOLO weights warm across requests while getting a
     fresh ByteTrack state per clip.
     """
-    frames, fps, width, height = read_video_frames(video_path, max_frames=max_frames)
-    frame_count = len(frames)
-    log(f"Loaded {frame_count} frames at {fps:.1f} FPS ({width}x{height})")
-
     stub_available = bool(
         use_stubs and stub_path and Path(stub_path).is_file()
     )
+    source_size = get_video_source_size(video_path) if stub_available else (0, 0)
+
+    frames, fps, width, height = read_video_frames(
+        video_path,
+        max_frames=max_frames,
+        resize_width=resize_width,
+    )
+    frame_count = len(frames)
+    log(f"Loaded {frame_count} frames at {fps:.1f} FPS ({width}x{height})")
+
     tracker_obj = None
     if stub_available:
         log(f"Loading cached tracks from {stub_path}")
@@ -184,7 +273,12 @@ def process_video(
         tracks = tracker_obj.get_object_tracks(frames)
 
     tracks = _fit_tracks(tracks, frame_count)
+    if stub_available:
+        # Stubs were generated at the source resolution; frames may have been
+        # downscaled for Streamlit Cloud's RAM limit.
+        scale_tracks_to_frame_size(tracks, source_size, (width, height))
     add_positions_to_tracks(tracks)
+    gc.collect()
 
     from camera_movement_estimator.camera_movement_estimator import CameraMovementEstimator
 
@@ -200,19 +294,39 @@ def process_video(
         # different clip and silently corrupt later runs.
         stub_path=str(camera_stub_path) if camera_stub_available else None,
     )
+    if camera_stub_available:
+        camera_movement = scale_camera_movement_to_frame_size(
+            camera_movement, source_size, (width, height)
+        )
     camera_movement = _fit_sequence(camera_movement, frame_count, lambda: [0, 0])
     camera_estimator.add_adjust_positions_to_tracks(tracks, camera_movement)
+    gc.collect()
 
     from view_transformer.view_transformer import ViewTransformer
 
     log("Projecting tracks onto the 23.32 m x 68 m pitch ...")
     view_transformer = ViewTransformer()
+    if width != 1920 or height != 1080:
+        # Keep the calibration valid when frames were downscaled for RAM.
+        scale = np.array([width / 1920.0, height / 1080.0], dtype=np.float32)
+        view_transformer.pixel_vertices = (
+            view_transformer.pixel_vertices * scale
+        ).astype(np.float32)
+        view_transformer.persepctive_trasnformer = cv2.getPerspectiveTransform(
+            view_transformer.pixel_vertices,
+            view_transformer.target_vertices,
+        )
     view_transformer.add_transformed_position_to_tracks(tracks)
 
     tracks["ball"] = interpolate_ball_positions(tracks.get("ball", []))
 
     team_colors = _assign_teams(tracks, frames, log)
     team_ball_control = _assign_possession(tracks)
+
+    # Frames are no longer needed once positions, teams and possession are
+    # computed. Release them before returning the potentially large track dict.
+    del frames
+    gc.collect()
 
     return {
         "tracks": tracks,
@@ -589,6 +703,12 @@ def main() -> None:
     parser.add_argument("--camera-stub", default="stubs/camera_movement_stub.pkl")
     parser.add_argument("--no-stub", action="store_true", help="Run detection instead of cached tracks")
     parser.add_argument("--max-frames", type=int, default=None)
+    parser.add_argument(
+        "--resize-width",
+        type=int,
+        default=960,
+        help="Downscale frames to this width to bound RAM (0 disables resizing)",
+    )
     parser.add_argument("--output-dir", default="outputs/analytics")
     args = parser.parse_args()
 
@@ -600,6 +720,7 @@ def main() -> None:
         stub_path=args.stub,
         camera_stub_path=args.camera_stub,
         use_stubs=use_stubs,
+        resize_width=args.resize_width if args.resize_width > 0 else None,
     )
     payload, json_path, csv_path = export_analytics(result, output_dir=args.output_dir)
 

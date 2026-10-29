@@ -1,8 +1,10 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
+# CPU-only PyTorch wheels for Streamlit Community Cloud (avoid CUDA payload)
 torch
 torchvision
 ultralytics
 supervision==0.22.0
+# Headless OpenCV: no GUI/X11 libs needed in the 1 GB Cloud container
 opencv-python-headless
 numpy
 matplotlib

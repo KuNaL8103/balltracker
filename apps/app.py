@@ -66,7 +66,7 @@ def get_tracker():
             raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
         logger.info("Loading YOLO model from %s", MODEL_PATH)
         _tracker = Tracker(MODEL_PATH)
-        logger.info("Model ready (device=%s, half=%s)", _tracker.device, _tracker.use_half)
+        logger.info("Tracker ready (YOLO model will load lazily on first inference)")
     return _tracker
 
 
