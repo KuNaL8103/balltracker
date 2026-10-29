@@ -36,6 +36,25 @@ import pandas as pd
 import requests
 import seaborn as sns
 import streamlit as st
+import os
+import urllib.request
+from pathlib import Path
+
+MODEL_DIR = Path("models")
+MODEL_PATH = MODEL_DIR / "best.pt"
+
+# Paste your direct GitHub Release download URL here
+MODEL_URL = "https://github.com/KuNaL8103/balltracker/releases/download/model/best.pt"
+
+def ensure_model_exists():
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    if not MODEL_PATH.exists() or MODEL_PATH.stat().st_size == 0:
+        import streamlit as st
+        with st.spinner("Downloading YOLO model weights (~165MB), please wait..."):
+            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+
+# Run the check before running the pipeline or loading the model
+ensure_model_exists()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
