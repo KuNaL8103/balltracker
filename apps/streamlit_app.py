@@ -38,7 +38,6 @@ import seaborn as sns
 import streamlit as st
 import os
 import urllib.request
-import torch
 
 # 1. Page config MUST run before any other st.* calls
 st.set_page_config(
@@ -47,9 +46,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-use_half = (device == "cuda")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
