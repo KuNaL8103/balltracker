@@ -39,28 +39,28 @@ import streamlit as st
 import os
 import urllib.request
 from pathlib import Path
+import torch
 
-MODEL_DIR = Path("models")
-MODEL_PATH = MODEL_DIR / "best.pt"
-
-# Paste your direct GitHub Release download URL here
-MODEL_URL = "https://github.com/KuNaL8103/balltracker/releases/download/model/best.pt"
-
-def ensure_model_exists():
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    if not MODEL_PATH.exists() or MODEL_PATH.stat().st_size == 0:
-        import streamlit as st
-        with st.spinner("Downloading YOLO model weights (~165MB), please wait..."):
-            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-
-# Run the check before running the pipeline or loading the model
-ensure_model_exists()
+device = "cuda" if torch.cuda.is_available() else "cpu"
+use_half = (device == "cuda")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-MODEL_PATH = PROJECT_ROOT / "models" / "best.pt"
+MODEL_DIR = PROJECT_ROOT / "models"
+MODEL_PATH = MODEL_DIR / "best.pt"
+MODEL_URL = "https://github.com/KuNaL8103/balltracker/releases/download/model/best.pt"
+
+def ensure_model_exists():
+    """Downloads model weights if missing or incomplete."""
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    # Check if file is missing or smaller than 100MB (full model is ~165MB)
+    if not MODEL_PATH.exists() or MODEL_PATH.stat().st_size < 100 * 1024 * 1024:
+        with st.spinner("Downloading YOLO model weights (~165MB) from GitHub Release, please wait..."):
+            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+
+ensure_model_exists()
 SAMPLE_VIDEO = PROJECT_ROOT / "input_videos" / "08fd33_4.mp4"
 TRACK_STUB = PROJECT_ROOT / "stubs" / "track_stubs.pkl"
 CAMERA_STUB = PROJECT_ROOT / "stubs" / "camera_movement_stub.pkl"
@@ -82,7 +82,7 @@ PITCH_WIDTH_M = 68.0
 
 st.set_page_config(
     page_title="BallTracker Tactical Dashboard",
-    page_icon="âš½",
+    page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded",
 )
