@@ -38,8 +38,15 @@ import seaborn as sns
 import streamlit as st
 import os
 import urllib.request
-from pathlib import Path
 import torch
+
+# 1. Page config MUST run before any other st.* calls
+st.set_page_config(
+    page_title="BallTracker Tactical Dashboard",
+    page_icon="⚽",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 use_half = (device == "cuda")
@@ -55,12 +62,12 @@ MODEL_URL = "https://github.com/KuNaL8103/balltracker/releases/download/model/be
 def ensure_model_exists():
     """Downloads model weights if missing or incomplete."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    # Check if file is missing or smaller than 100MB (full model is ~165MB)
     if not MODEL_PATH.exists() or MODEL_PATH.stat().st_size < 100 * 1024 * 1024:
         with st.spinner("Downloading YOLO model weights (~165MB) from GitHub Release, please wait..."):
             urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
-ensure_model_exists()
+# Note: ensure_model_exists() is removed from here so startup stays fast and lightweight.
+
 SAMPLE_VIDEO = PROJECT_ROOT / "input_videos" / "08fd33_4.mp4"
 TRACK_STUB = PROJECT_ROOT / "stubs" / "track_stubs.pkl"
 CAMERA_STUB = PROJECT_ROOT / "stubs" / "camera_movement_stub.pkl"
@@ -79,13 +86,6 @@ TEAM_COLORS_IMAGE = PROJECT_ROOT / "output_videos" / "team_colors.jpg"
 API_DEFAULT = "http://127.0.0.1:8000"
 PITCH_LENGTH_M = 23.32
 PITCH_WIDTH_M = 68.0
-
-st.set_page_config(
-    page_title="BallTracker Tactical Dashboard",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
 st.markdown(
     """
@@ -189,7 +189,8 @@ def on_source_change() -> None:
 
 
 def get_tracker():
-    """Cache YOLO weights across Streamlit reruns."""
+    """Download weights if needed and cache YOLO tracker across Streamlit reruns."""
+    ensure_model_exists()
     from trackers.tracker import Tracker
 
     return Tracker(str(MODEL_PATH))
