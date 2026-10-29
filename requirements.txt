@@ -1,12 +1,12 @@
 ultralytics
-supervision
+supervision==0.22.0
 opencv-python
 numpy
 matplotlib
 pandas
 scikit-learn
 torch
-torchvision
+torchvisionw
 motmetrics
 
 # Structured analytics export + benchmark
